@@ -4,8 +4,10 @@ import (
 	"avicosystem/backend/internal/cache"
 	"avicosystem/backend/internal/config"
 	"avicosystem/backend/internal/database"
+	appmiddleware "avicosystem/backend/internal/middleware"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/recover"
 )
 
 func New(
@@ -16,6 +18,12 @@ func New(
 	app := fiber.New(fiber.Config{
 		AppName: cfg.App.Name,
 	})
+
+	app.Use(recover.New())
+	app.Use(appmiddleware.RequestID())
+	app.Use(appmiddleware.RequestLogger())
+	app.Use(appmiddleware.SecurityHeaders())
+	app.Use(appmiddleware.CORS(cfg.App.CORSAllowedOrigins))
 
 	app.Get("/health", func(c fiber.Ctx) error {
 		return c.JSON(map[string]any{
