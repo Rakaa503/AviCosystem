@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/alicebob/miniredis/v2 v2.40.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/gofiber/schema v1.9.3 // indirect
 	github.com/gofiber/utils/v2 v2.6.4 // indirect
@@ -29,6 +30,7 @@ require (
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.78.0 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
