@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"avicosystem/backend/internal/cache"
 	"avicosystem/backend/internal/config"
 	"avicosystem/backend/internal/database"
@@ -24,6 +26,12 @@ func New(
 	app.Use(appmiddleware.RequestLogger())
 	app.Use(appmiddleware.SecurityHeaders())
 	app.Use(appmiddleware.CORS(cfg.App.CORSAllowedOrigins))
+
+	app.Use(appmiddleware.RateLimit(
+		redisClient.Client,
+		cfg.App.RateLimitRequests,
+		time.Duration(cfg.App.RateLimitWindowSeconds)*time.Second,
+	))
 
 	app.Get("/health", func(c fiber.Ctx) error {
 		return c.JSON(map[string]any{
