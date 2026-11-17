@@ -2,6 +2,9 @@ package database
 
 import (
 	"fmt"
+	"time"
+
+	"avicosystem/backend/internal/config"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -11,23 +14,15 @@ type PostgreSQL struct {
 	DB *gorm.DB
 }
 
-func NewPostgreSQL(
-	host string,
-	port string,
-	user string,
-	password string,
-	database string,
-	sslmode string,
-) (*PostgreSQL, error) {
-
+func NewPostgreSQL(cfg config.DatabaseConfig) (*PostgreSQL, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		host,
-		port,
-		user,
-		password,
-		database,
-		sslmode,
+		cfg.Host,
+		cfg.Port,
+		cfg.User,
+		cfg.Password,
+		cfg.Name,
+		cfg.SSLMode,
 	)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
@@ -39,6 +34,15 @@ func NewPostgreSQL(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get SQL connection: %w", err)
 	}
+
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(
+		time.Duration(cfg.ConnMaxLifetimeSeconds) * time.Second,
+	)
+	sqlDB.SetConnMaxIdleTime(
+		time.Duration(cfg.ConnMaxIdleTimeSeconds) * time.Second,
+	)
 
 	if err := sqlDB.Ping(); err != nil {
 		sqlDB.Close()

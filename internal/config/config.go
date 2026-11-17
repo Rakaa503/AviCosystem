@@ -72,28 +72,44 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.Database.MaxOpenConns <= 0 {
+		return fmt.Errorf("DATABASE_MAX_OPEN_CONNS must be greater than zero")
+	}
+
+	if c.Database.MaxIdleConns < 0 {
+		return fmt.Errorf("DATABASE_MAX_IDLE_CONNS cannot be negative")
+	}
+
+	if c.Database.MaxIdleConns > c.Database.MaxOpenConns {
+		return fmt.Errorf("DATABASE_MAX_IDLE_CONNS cannot exceed DATABASE_MAX_OPEN_CONNS")
+	}
+
+	if c.Database.ConnMaxLifetimeSeconds <= 0 {
+		return fmt.Errorf("DATABASE_CONN_MAX_LIFETIME_SECONDS must be greater than zero")
+	}
+
+	if c.Database.ConnMaxIdleTimeSeconds <= 0 {
+		return fmt.Errorf("DATABASE_CONN_MAX_IDLE_TIME_SECONDS must be greater than zero")
+	}
+
 	return nil
 }
 
 func getEnv(key, fallback string) string {
 	value, exists := os.LookupEnv(key)
-
 	if !exists {
 		return fallback
 	}
-
 	return value
 }
 
 func getEnvInt(key string, fallback int) int {
 	value, exists := os.LookupEnv(key)
-
 	if !exists {
 		return fallback
 	}
 
 	parsed, err := strconv.Atoi(value)
-
 	if err != nil {
 		return fallback
 	}

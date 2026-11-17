@@ -1,9 +1,9 @@
 package database
 
 import (
-	"os"
 	"testing"
 
+	"avicosystem/backend/internal/config"
 	"github.com/joho/godotenv"
 )
 
@@ -12,35 +12,36 @@ func TestPostgreSQLConnection(t *testing.T) {
 		t.Fatalf("Failed to load .env: %v", err)
 	}
 
-	required := []string{
-		"DATABASE_HOST",
-		"DATABASE_PORT",
-		"DATABASE_USER",
-		"DATABASE_PASSWORD",
-		"DATABASE_NAME",
-		"DATABASE_SSLMODE",
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	for _, key := range required {
-		if os.Getenv(key) == "" {
-			t.Fatalf("Missing environment variable: %s", key)
-		}
-	}
-
-	db, err := NewPostgreSQL(
-		os.Getenv("DATABASE_HOST"),
-		os.Getenv("DATABASE_PORT"),
-		os.Getenv("DATABASE_USER"),
-		os.Getenv("DATABASE_PASSWORD"),
-		os.Getenv("DATABASE_NAME"),
-		os.Getenv("DATABASE_SSLMODE"),
-	)
-
+	db, err := NewPostgreSQL(cfg.Database)
 	if err != nil {
 		t.Fatalf("PostgreSQL connection failed: %v", err)
 	}
 
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
+
+	sqlDB, err := db.DB.DB()
+	if err != nil {
+		t.Fatalf("Failed to retrieve SQL connection: %v", err)
+	}
+
+	stats := sqlDB.Stats()
+
+	if stats.MaxOpenConnections != cfg.Database.MaxOpenConns {
+		t.Fatalf(
+			"Unexpected max open connections: got %d, want %d",
+			stats.MaxOpenConnections,
+			cfg.Database.MaxOpenConns,
+		)
+	}
 
 	var databaseName string
 
@@ -48,9 +49,11 @@ func TestPostgreSQLConnection(t *testing.T) {
 		t.Fatalf("Database query failed: %v", err)
 	}
 
-	if databaseName != "avicosystem" {
+	if databaseName != cfg.Database.Name {
 		t.Fatalf("Unexpected database: %s", databaseName)
 	}
 
 	t.Logf("Connected successfully to database: %s", databaseName)
+	t.Logf("Max open connections: %d", stats.MaxOpenConnections)
+	t.Logf("Max idle connections: %d", cfg.Database.MaxIdleConns)
 }
