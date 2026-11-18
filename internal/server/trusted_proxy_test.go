@@ -1,15 +1,22 @@
 package server
 
 import (
+	"fmt"
 	"io"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 )
 
-func newTrustedProxyTestApp(trustedProxies []string) *fiber.App {
+func startTrustedProxyTestServer(
+	t *testing.T,
+	trustedProxies []string,
+) string {
+	t.Helper()
+
 	app := fiber.New(fiber.Config{
 		TrustProxy: true,
 		TrustProxyConfig: fiber.TrustProxyConfig{
@@ -23,25 +30,56 @@ func newTrustedProxyTestApp(trustedProxies []string) *fiber.App {
 		return c.SendString(c.IP())
 	})
 
-	return app
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create TCP listener: %v", err)
+	}
+
+	address := listener.Addr().String()
+	serverErrors := make(chan error, 1)
+
+	go func() {
+		serverErrors <- app.Listener(listener)
+	}()
+
+	t.Cleanup(func() {
+		_ = app.Shutdown()
+		_ = listener.Close()
+
+		select {
+		case err := <-serverErrors:
+			if err != nil {
+				t.Logf("listener stopped: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Log("listener shutdown timed out")
+		}
+	})
+
+	return fmt.Sprintf("http://%s/client-ip", address)
 }
 
-func performIPRequest(
+func requestClientIP(
 	t *testing.T,
-	app *fiber.App,
-	remoteAddr string,
+	url string,
 	forwardedFor string,
 ) string {
 	t.Helper()
 
-	request := httptest.NewRequest(http.MethodGet, "/client-ip", nil)
-	request.RemoteAddr = remoteAddr
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
 
 	if forwardedFor != "" {
 		request.Header.Set("X-Forwarded-For", forwardedFor)
 	}
 
-	response, err := app.Test(request)
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+	}
+
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -60,14 +98,12 @@ func performIPRequest(
 }
 
 func TestTrustedProxyUsesForwardedClientIP(t *testing.T) {
-	app := newTrustedProxyTestApp([]string{"10.0.0.0/8"})
-
-	actual := performIPRequest(
+	url := startTrustedProxyTestServer(
 		t,
-		app,
-		"10.0.0.2:8080",
-		"203.0.113.10, 10.0.0.1",
+		[]string{"127.0.0.1"},
 	)
+
+	actual := requestClientIP(t, url, "203.0.113.10")
 
 	if actual != "203.0.113.10" {
 		t.Fatalf("expected client IP 203.0.113.10, got %s", actual)
@@ -75,27 +111,30 @@ func TestTrustedProxyUsesForwardedClientIP(t *testing.T) {
 }
 
 func TestUntrustedProxyCannotOverrideClientIP(t *testing.T) {
-	app := newTrustedProxyTestApp([]string{"10.0.0.0/8"})
-
-	actual := performIPRequest(
+	url := startTrustedProxyTestServer(
 		t,
-		app,
-		"198.51.100.20:8080",
-		"203.0.113.99",
+		[]string{"10.0.0.0/8"},
 	)
 
-	if actual != "198.51.100.20" {
-		t.Fatalf("expected remote IP 198.51.100.20, got %s", actual)
+	actual := requestClientIP(t, url, "203.0.113.99")
+
+	if actual != "127.0.0.1" {
+		t.Fatalf("expected remote IP 127.0.0.1, got %s", actual)
 	}
 }
 
 func TestTrustedProxySkipsTrustedIPsInForwardedChain(t *testing.T) {
-	app := newTrustedProxyTestApp([]string{"10.0.0.0/8"})
-
-	actual := performIPRequest(
+	url := startTrustedProxyTestServer(
 		t,
-		app,
-		"10.0.0.2:8080",
+		[]string{
+			"127.0.0.1",
+			"10.0.0.0/8",
+		},
+	)
+
+	actual := requestClientIP(
+		t,
+		url,
 		"203.0.113.15, 10.0.0.1",
 	)
 
