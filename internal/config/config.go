@@ -3,8 +3,10 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -17,6 +19,10 @@ type Config struct {
 
 func Load() (*Config, error) {
 	_ = godotenv.Load()
+
+	if err := validateEnvValues(); err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		App:      loadAppConfig(),
@@ -31,28 +37,75 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+func validateEnvValues() error {
+	integerKeys := []string{
+		"APP_PORT",
+		"RATE_LIMIT_REQUESTS",
+		"RATE_LIMIT_WINDOW_SECONDS",
+		"REQUEST_TIMEOUT_SECONDS",
+		"DATABASE_PORT",
+		"DATABASE_MAX_OPEN_CONNS",
+		"DATABASE_MAX_IDLE_CONNS",
+		"DATABASE_CONN_MAX_LIFETIME_SECONDS",
+		"DATABASE_CONN_MAX_IDLE_TIME_SECONDS",
+		"REDIS_PORT",
+		"REDIS_DB",
+		"REDIS_POOL_SIZE",
+		"REDIS_MIN_IDLE_CONNS",
+		"REDIS_MAX_RETRIES",
+		"REDIS_DIAL_TIMEOUT_SECONDS",
+		"REDIS_READ_TIMEOUT_SECONDS",
+		"REDIS_WRITE_TIMEOUT_SECONDS",
+	}
+
+	for _, key := range integerKeys {
+		value, exists := os.LookupEnv(key)
+		if !exists {
+			continue
+		}
+
+		if _, err := strconv.Atoi(strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("%s must be a valid integer", key)
+		}
+	}
+
+	if value, exists := os.LookupEnv("TRUST_PROXY"); exists {
+		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("TRUST_PROXY must be a valid boolean")
+		}
+	}
+
+	return nil
+}
+
 func (c *Config) Validate() error {
-	if c.App.Name == "" {
+	if strings.TrimSpace(c.App.Name) == "" {
 		return fmt.Errorf("APP_NAME cannot be empty")
+	}
+
+	switch c.App.Env {
+	case "development", "production", "test":
+	default:
+		return fmt.Errorf("APP_ENV must be development, production, or test")
 	}
 
 	if c.App.Port == "" {
 		return fmt.Errorf("APP_PORT cannot be empty")
 	}
 
-	if c.Database.Host == "" {
+	if strings.TrimSpace(c.Database.Host) == "" {
 		return fmt.Errorf("DATABASE_HOST cannot be empty")
 	}
 
-	if c.Database.User == "" {
+	if strings.TrimSpace(c.Database.User) == "" {
 		return fmt.Errorf("DATABASE_USER cannot be empty")
 	}
 
-	if c.Database.Name == "" {
+	if strings.TrimSpace(c.Database.Name) == "" {
 		return fmt.Errorf("DATABASE_NAME cannot be empty")
 	}
 
-	if c.Redis.Host == "" {
+	if strings.TrimSpace(c.Redis.Host) == "" {
 		return fmt.Errorf("REDIS_HOST cannot be empty")
 	}
 
@@ -71,6 +124,18 @@ func (c *Config) Validate() error {
 		if err != nil || port < 1 || port > 65535 {
 			return fmt.Errorf("%s must be a valid port between 1 and 65535", key)
 		}
+	}
+
+	if c.App.RateLimitRequests <= 0 {
+		return fmt.Errorf("RATE_LIMIT_REQUESTS must be greater than zero")
+	}
+
+	if c.App.RateLimitWindowSeconds <= 0 {
+		return fmt.Errorf("RATE_LIMIT_WINDOW_SECONDS must be greater than zero")
+	}
+
+	if c.App.RequestTimeoutSeconds <= 0 {
+		return fmt.Errorf("REQUEST_TIMEOUT_SECONDS must be greater than zero")
 	}
 
 	if c.Database.MaxOpenConns <= 0 {
@@ -93,8 +158,36 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("DATABASE_CONN_MAX_IDLE_TIME_SECONDS must be greater than zero")
 	}
 
-	if c.App.RequestTimeoutSeconds <= 0 {
-		return fmt.Errorf("REQUEST_TIMEOUT_SECONDS must be greater than zero")
+	if c.Redis.PoolSize <= 0 {
+		return fmt.Errorf("REDIS_POOL_SIZE must be greater than zero")
+	}
+
+	if c.Redis.MinIdleConns < 0 {
+		return fmt.Errorf("REDIS_MIN_IDLE_CONNS cannot be negative")
+	}
+
+	if c.Redis.MinIdleConns > c.Redis.PoolSize {
+		return fmt.Errorf("REDIS_MIN_IDLE_CONNS cannot exceed REDIS_POOL_SIZE")
+	}
+
+	if c.Redis.MaxRetries < 0 {
+		return fmt.Errorf("REDIS_MAX_RETRIES cannot be negative")
+	}
+
+	if c.Redis.DialTimeout <= 0 {
+		return fmt.Errorf("REDIS_DIAL_TIMEOUT_SECONDS must be greater than zero")
+	}
+
+	if c.Redis.ReadTimeout <= 0 {
+		return fmt.Errorf("REDIS_READ_TIMEOUT_SECONDS must be greater than zero")
+	}
+
+	if c.Redis.WriteTimeout <= 0 {
+		return fmt.Errorf("REDIS_WRITE_TIMEOUT_SECONDS must be greater than zero")
+	}
+
+	if err := validateCORSOrigins(c.App.CORSAllowedOrigins); err != nil {
+		return err
 	}
 
 	if c.App.TrustProxy && len(c.App.TrustedProxies) == 0 {
@@ -114,11 +207,32 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+func validateCORSOrigins(origins []string) error {
+	for _, origin := range origins {
+		parsed, err := url.Parse(origin)
+		if err != nil {
+			return fmt.Errorf("invalid CORS origin: %s", origin)
+		}
+
+		if (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			parsed.Host == "" ||
+			parsed.User != nil ||
+			parsed.Path != "" ||
+			parsed.RawQuery != "" ||
+			parsed.Fragment != "" {
+			return fmt.Errorf("invalid CORS origin: %s", origin)
+		}
+	}
+
+	return nil
+}
+
 func getEnv(key, fallback string) string {
 	value, exists := os.LookupEnv(key)
 	if !exists {
 		return fallback
 	}
+
 	return value
 }
 
@@ -128,7 +242,7 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 
-	parsed, err := strconv.Atoi(value)
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
 		return fallback
 	}
@@ -142,7 +256,7 @@ func getEnvBool(key string, fallback bool) bool {
 		return fallback
 	}
 
-	parsed, err := strconv.ParseBool(value)
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
 		return fallback
 	}
