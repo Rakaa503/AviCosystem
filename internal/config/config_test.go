@@ -10,7 +10,7 @@ func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
 	keys := []string{
-		"APP_NAME", "APP_ENV", "APP_PORT",
+		"APP_NAME", "APP_ENV", "APP_PORT", "JWT_SECRET", "JWT_ACCESS_TOKEN_TTL_MINUTES",
 		"CORS_ALLOWED_ORIGINS",
 		"RATE_LIMIT_REQUESTS", "RATE_LIMIT_WINDOW_SECONDS",
 		"REQUEST_TIMEOUT_SECONDS",
@@ -37,13 +37,15 @@ func clearConfigEnv(t *testing.T) {
 func validConfig() *Config {
 	return &Config{
 		App: AppConfig{
-			Name:                   "AviCosystem",
-			Env:                    "development",
-			Port:                   "8080",
-			CORSAllowedOrigins:     []string{"http://localhost:5173"},
-			RateLimitRequests:      100,
-			RateLimitWindowSeconds: 60,
-			RequestTimeoutSeconds:  30,
+			Name:                     "AviCosystem",
+			Env:                      "development",
+			Port:                     "8080",
+			CORSAllowedOrigins:       []string{"http://localhost:5173"},
+			RateLimitRequests:        100,
+			RateLimitWindowSeconds:   60,
+			RequestTimeoutSeconds:    30,
+			JWTSecret:                "test-secret-with-at-least-32-bytes-long",
+			JWTAccessTokenTTLMinutes: 15,
 		},
 		Database: DatabaseConfig{
 			Host:                   "localhost",
@@ -71,6 +73,7 @@ func validConfig() *Config {
 
 func TestConfigDefaultValues(t *testing.T) {
 	clearConfigEnv(t)
+	t.Setenv("JWT_SECRET", "test-secret-with-at-least-32-bytes-long")
 
 	cfg := &Config{
 		App:      loadAppConfig(),
@@ -285,5 +288,40 @@ func TestValidateEnvValuesAcceptsValidValues(t *testing.T) {
 
 	if err := validateEnvValues(); err != nil {
 		t.Fatalf("unexpected environment validation error: %v", err)
+	}
+}
+
+func TestConfigInvalidJWT(t *testing.T) {
+	tests := []struct {
+		name   string
+		secret string
+		ttl    int
+	}{
+		{"missing secret", "", 15},
+		{"short secret", "too-short", 15},
+		{"zero lifetime", "test-secret-with-at-least-32-bytes-long", 0},
+		{"negative lifetime", "test-secret-with-at-least-32-bytes-long", -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.App.JWTSecret = tt.secret
+			cfg.App.JWTAccessTokenTTLMinutes = tt.ttl
+
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("expected JWT validation error")
+			}
+		})
+	}
+}
+
+func TestValidateEnvValuesRejectsInvalidJWTLifetime(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("JWT_ACCESS_TOKEN_TTL_MINUTES", "invalid")
+
+	err := validateEnvValues()
+	if err == nil || !strings.Contains(err.Error(), "JWT_ACCESS_TOKEN_TTL_MINUTES") {
+		t.Fatalf("expected JWT lifetime validation error, got: %v", err)
 	}
 }

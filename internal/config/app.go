@@ -12,6 +12,9 @@ type AppConfig struct {
 	RequestTimeoutSeconds  int
 	TrustProxy             bool
 	TrustedProxies         []string
+
+	JWTSecret                string
+	JWTAccessTokenTTLMinutes int
 }
 
 func loadAppConfig() AppConfig {
@@ -21,15 +24,17 @@ func loadAppConfig() AppConfig {
 	)
 
 	return AppConfig{
-		Name:                   getEnv("APP_NAME", "AviCosystem"),
-		Env:                    getEnv("APP_ENV", "development"),
-		Port:                   getEnv("APP_PORT", "8080"),
-		CORSAllowedOrigins:     splitEnvList(origins),
-		RateLimitRequests:      getEnvInt("RATE_LIMIT_REQUESTS", 100),
-		RateLimitWindowSeconds: getEnvInt("RATE_LIMIT_WINDOW_SECONDS", 60),
-		RequestTimeoutSeconds:  getEnvInt("REQUEST_TIMEOUT_SECONDS", 30),
-		TrustProxy:             getEnvBool("TRUST_PROXY", false),
-		TrustedProxies:         splitEnvList(getEnv("TRUSTED_PROXIES", "")),
+		Name:                     getEnv("APP_NAME", "AviCosystem"),
+		Env:                      getEnv("APP_ENV", "development"),
+		Port:                     getEnv("APP_PORT", "8080"),
+		CORSAllowedOrigins:       splitEnvList(origins),
+		RateLimitRequests:        getEnvInt("RATE_LIMIT_REQUESTS", 100),
+		RateLimitWindowSeconds:   getEnvInt("RATE_LIMIT_WINDOW_SECONDS", 60),
+		RequestTimeoutSeconds:    getEnvInt("REQUEST_TIMEOUT_SECONDS", 30),
+		TrustProxy:               getEnvBool("TRUST_PROXY", false),
+		TrustedProxies:           splitEnvList(getEnv("TRUSTED_PROXIES", "")),
+		JWTSecret:                getEnv("JWT_SECRET", ""),
+		JWTAccessTokenTTLMinutes: getEnvInt("JWT_ACCESS_TOKEN_TTL_MINUTES", 15),
 	}
 }
 

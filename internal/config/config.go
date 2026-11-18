@@ -43,6 +43,7 @@ func validateEnvValues() error {
 		"RATE_LIMIT_REQUESTS",
 		"RATE_LIMIT_WINDOW_SECONDS",
 		"REQUEST_TIMEOUT_SECONDS",
+		"JWT_ACCESS_TOKEN_TTL_MINUTES",
 		"DATABASE_PORT",
 		"DATABASE_MAX_OPEN_CONNS",
 		"DATABASE_MAX_IDLE_CONNS",
@@ -136,6 +137,14 @@ func (c *Config) Validate() error {
 
 	if c.App.RequestTimeoutSeconds <= 0 {
 		return fmt.Errorf("REQUEST_TIMEOUT_SECONDS must be greater than zero")
+	}
+
+	if len([]byte(c.App.JWTSecret)) < 32 {
+		return fmt.Errorf("JWT_SECRET must contain at least 32 bytes")
+	}
+
+	if c.App.JWTAccessTokenTTLMinutes <= 0 {
+		return fmt.Errorf("JWT_ACCESS_TOKEN_TTL_MINUTES must be greater than zero")
 	}
 
 	if c.Database.MaxOpenConns <= 0 {
