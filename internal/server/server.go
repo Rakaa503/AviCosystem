@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
+	fiberTimeout "github.com/gofiber/fiber/v3/middleware/timeout"
 )
 
 func New(
@@ -17,9 +18,20 @@ func New(
 	postgres *database.PostgreSQL,
 	redisClient *cache.Redis,
 ) *fiber.App {
-	app := fiber.New(fiber.Config{
-		AppName: cfg.App.Name,
-	})
+	fiberConfig := fiber.Config{
+		AppName:    cfg.App.Name,
+		TrustProxy: cfg.App.TrustProxy,
+		TrustProxyConfig: fiber.TrustProxyConfig{
+			Proxies: cfg.App.TrustedProxies,
+		},
+		EnableIPValidation: true,
+	}
+
+	if cfg.App.TrustProxy {
+		fiberConfig.ProxyHeader = "X-Forwarded-For"
+	}
+
+	app := fiber.New(fiberConfig)
 
 	app.Use(recover.New())
 	app.Use(appmiddleware.RequestID())
@@ -31,6 +43,21 @@ func New(
 		redisClient.Client,
 		cfg.App.RateLimitRequests,
 		time.Duration(cfg.App.RateLimitWindowSeconds)*time.Second,
+	))
+
+	app.Use(fiberTimeout.New(
+		func(c fiber.Ctx) error {
+			return c.Next()
+		},
+		fiberTimeout.Config{
+			Timeout: time.Duration(cfg.App.RequestTimeoutSeconds) * time.Second,
+			OnTimeout: func(c fiber.Ctx) error {
+				return c.Status(fiber.StatusServiceUnavailable).JSON(map[string]any{
+					"status":  "error",
+					"message": "Request processing timeout",
+				})
+			},
+		},
 	))
 
 	app.Get("/health", func(c fiber.Ctx) error {

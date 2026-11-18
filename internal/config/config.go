@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 
@@ -92,6 +93,24 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("DATABASE_CONN_MAX_IDLE_TIME_SECONDS must be greater than zero")
 	}
 
+	if c.App.RequestTimeoutSeconds <= 0 {
+		return fmt.Errorf("REQUEST_TIMEOUT_SECONDS must be greater than zero")
+	}
+
+	if c.App.TrustProxy && len(c.App.TrustedProxies) == 0 {
+		return fmt.Errorf("TRUSTED_PROXIES must contain at least one IP or CIDR when TRUST_PROXY is enabled")
+	}
+
+	for _, proxy := range c.App.TrustedProxies {
+		if net.ParseIP(proxy) != nil {
+			continue
+		}
+
+		if _, _, err := net.ParseCIDR(proxy); err != nil {
+			return fmt.Errorf("invalid trusted proxy address or CIDR: %s", proxy)
+		}
+	}
+
 	return nil
 }
 
@@ -110,6 +129,20 @@ func getEnvInt(key string, fallback int) int {
 	}
 
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

@@ -9,6 +9,9 @@ type AppConfig struct {
 	CORSAllowedOrigins     []string
 	RateLimitRequests      int
 	RateLimitWindowSeconds int
+	RequestTimeoutSeconds  int
+	TrustProxy             bool
+	TrustedProxies         []string
 }
 
 func loadAppConfig() AppConfig {
@@ -21,8 +24,29 @@ func loadAppConfig() AppConfig {
 		Name:                   getEnv("APP_NAME", "AviCosystem"),
 		Env:                    getEnv("APP_ENV", "development"),
 		Port:                   getEnv("APP_PORT", "8080"),
-		CORSAllowedOrigins:     strings.Split(origins, ","),
+		CORSAllowedOrigins:     splitEnvList(origins),
 		RateLimitRequests:      getEnvInt("RATE_LIMIT_REQUESTS", 100),
 		RateLimitWindowSeconds: getEnvInt("RATE_LIMIT_WINDOW_SECONDS", 60),
+		RequestTimeoutSeconds:  getEnvInt("REQUEST_TIMEOUT_SECONDS", 30),
+		TrustProxy:             getEnvBool("TRUST_PROXY", false),
+		TrustedProxies:         splitEnvList(getEnv("TRUSTED_PROXIES", "")),
 	}
+}
+
+func splitEnvList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+
+	return result
 }
