@@ -1,4 +1,4 @@
-﻿name: Backend CI
+name: Backend CI
 
 on:
   push:
@@ -15,6 +15,58 @@ jobs:
   validate:
     name: Test, Vet and Build
     runs-on: ubuntu-latest
+
+    env:
+      APP_NAME: AviCosystem
+      APP_ENV: test
+      JWT_SECRET: ci-test-secret-key-minimum-32-bytes-long
+
+      DATABASE_HOST: localhost
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: avicosystem
+      DATABASE_SSLMODE: disable
+      DATABASE_MAX_OPEN_CONNS: 25
+      DATABASE_MAX_IDLE_CONNS: 10
+      DATABASE_CONN_MAX_LIFETIME_SECONDS: 1800
+      DATABASE_CONN_MAX_IDLE_TIME_SECONDS: 300
+
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: 0
+      REDIS_POOL_SIZE: 10
+      REDIS_MIN_IDLE_CONNS: 2
+      REDIS_MAX_RETRIES: 3
+      REDIS_DIAL_TIMEOUT_SECONDS: 5
+      REDIS_READ_TIMEOUT_SECONDS: 3
+      REDIS_WRITE_TIMEOUT_SECONDS: 3
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: avicosystem
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d avicosystem"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout

@@ -8,6 +8,7 @@ import (
 	"avicosystem/backend/internal/database"
 	appmiddleware "avicosystem/backend/internal/middleware"
 	authmodule "avicosystem/backend/internal/modules/auth"
+	"avicosystem/backend/internal/modules/users"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
@@ -19,6 +20,8 @@ func New(
 	postgres *database.PostgreSQL,
 	redisClient *cache.Redis,
 	authHandler *authmodule.Handler,
+	jwtService *authmodule.JWTService,
+	profileHandler *users.ProfileHandler,
 ) *fiber.App {
 	fiberConfig := fiber.Config{
 		AppName:    cfg.App.Name,

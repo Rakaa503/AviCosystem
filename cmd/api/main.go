@@ -65,7 +65,17 @@ func run() error {
 
 	authHandler := authmodule.NewHandler(authService)
 
-	app := server.New(cfg, postgres, redisClient, authHandler)
+	profileService := users.NewProfileService(userRepository)
+	profileHandler := users.NewProfileHandler(profileService)
+
+	app := server.New(
+		cfg,
+		postgres,
+		redisClient,
+		authHandler,
+		jwtService,
+		profileHandler,
+	)
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
