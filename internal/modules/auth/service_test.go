@@ -1,0 +1,417 @@
+package auth
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"avicosystem/backend/internal/modules/users"
+
+	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+type failingLoginRepository struct {
+	*users.Repository
+	updateErr error
+}
+
+func (r *failingLoginRepository) UpdateLastLogin(
+	id uuid.UUID,
+	loginAt time.Time,
+) error {
+	return r.updateErr
+}
+
+func setupAuthenticationService(
+	t *testing.T,
+) (*AuthenticationService, *users.Repository, *gorm.DB) {
+	t.Helper()
+
+	db, err := gorm.Open(
+		sqlite.Open(":memory:"),
+		&gorm.Config{},
+	)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to get SQL database: %v", err)
+	}
+
+	sqlDB.SetMaxOpenConns(1)
+
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	if err := db.AutoMigrate(&users.User{}); err != nil {
+		t.Fatalf("failed to migrate user model: %v", err)
+	}
+
+	repository := users.NewRepository(db)
+	passwordService := users.NewPasswordService()
+
+	jwtService, err := NewJWTService(
+		testJWTSecret,
+		"avicosystem-test",
+		15*time.Minute,
+	)
+	if err != nil {
+		t.Fatalf("failed to create JWT service: %v", err)
+	}
+
+	service, err := NewAuthenticationService(
+		repository,
+		passwordService,
+		jwtService,
+	)
+	if err != nil {
+		t.Fatalf("failed to create authentication service: %v", err)
+	}
+
+	return service, repository, db
+}
+
+func TestAuthenticationServiceRegister(t *testing.T) {
+	service, repository, _ := setupAuthenticationService(t)
+
+	user, err := service.Register(RegisterInput{
+		Name:     "Rakha Avilla",
+		Email:    "  RAKHA@EXAMPLE.COM ",
+		Password: "SecurePassword123!",
+	})
+	if err != nil {
+		t.Fatalf("failed to register user: %v", err)
+	}
+
+	if user.ID == uuid.Nil {
+		t.Fatal("expected generated user UUID")
+	}
+
+	if user.Name != "Rakha Avilla" {
+		t.Fatalf("unexpected name: %s", user.Name)
+	}
+
+	if user.Email != "rakha@example.com" {
+		t.Fatalf("unexpected email: %s", user.Email)
+	}
+
+	if user.Role != users.RoleUser {
+		t.Fatalf("expected user role, got: %s", user.Role)
+	}
+
+	if user.Status != users.StatusActive {
+		t.Fatalf("expected active status, got: %s", user.Status)
+	}
+
+	if user.PasswordHash != "" {
+		t.Fatal("password hash must not be returned")
+	}
+
+	storedUser, err := repository.FindByEmail(user.Email)
+	if err != nil {
+		t.Fatalf("failed to find registered user: %v", err)
+	}
+
+	if storedUser.PasswordHash == "" ||
+		storedUser.PasswordHash == "SecurePassword123!" {
+		t.Fatal("password must be stored as a hash")
+	}
+
+	if err := users.NewPasswordService().VerifyPassword(
+		"SecurePassword123!",
+		storedUser.PasswordHash,
+	); err != nil {
+		t.Fatalf("stored password hash verification failed: %v", err)
+	}
+}
+
+func TestAuthenticationServiceRegisterDuplicateEmail(t *testing.T) {
+	service, _, _ := setupAuthenticationService(t)
+
+	input := RegisterInput{
+		Name:     "User One",
+		Email:    "user@example.com",
+		Password: "SecurePassword123!",
+	}
+
+	if _, err := service.Register(input); err != nil {
+		t.Fatalf("failed to register first user: %v", err)
+	}
+
+	input.Name = "User Two"
+	input.Email = " USER@EXAMPLE.COM "
+
+	_, err := service.Register(input)
+
+	if !errors.Is(err, ErrEmailAlreadyExists) {
+		t.Fatalf("expected ErrEmailAlreadyExists, got: %v", err)
+	}
+}
+
+func TestAuthenticationServiceRegisterInvalidInput(t *testing.T) {
+	service, _, _ := setupAuthenticationService(t)
+
+	tests := []struct {
+		name  string
+		input RegisterInput
+	}{
+		{
+			name: "empty name",
+			input: RegisterInput{
+				Email:    "user@example.com",
+				Password: "SecurePassword123!",
+			},
+		},
+		{
+			name: "invalid email",
+			input: RegisterInput{
+				Name:     "Test User",
+				Email:    "invalid-email",
+				Password: "SecurePassword123!",
+			},
+		},
+		{
+			name: "empty password",
+			input: RegisterInput{
+				Name:  "Test User",
+				Email: "user@example.com",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := service.Register(test.input)
+
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("expected ErrInvalidInput, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestAuthenticationServiceLogin(t *testing.T) {
+	service, repository, _ := setupAuthenticationService(t)
+
+	_, err := service.Register(RegisterInput{
+		Name:     "Rakha Avilla",
+		Email:    "rakha@example.com",
+		Password: "SecurePassword123!",
+	})
+	if err != nil {
+		t.Fatalf("failed to register user: %v", err)
+	}
+
+	result, err := service.Login(LoginInput{
+		Email:    " RAKHA@EXAMPLE.COM ",
+		Password: "SecurePassword123!",
+	})
+	if err != nil {
+		t.Fatalf("failed to login: %v", err)
+	}
+
+	if result.AccessToken == "" {
+		t.Fatal("expected access token")
+	}
+
+	if result.TokenType != "Bearer" {
+		t.Fatalf("unexpected token type: %s", result.TokenType)
+	}
+
+	if result.ExpiresIn != 900 {
+		t.Fatalf("unexpected token expiration: %d", result.ExpiresIn)
+	}
+
+	if result.User.PasswordHash != "" {
+		t.Fatal("password hash must not be returned")
+	}
+
+	jwtService, err := NewJWTService(
+		testJWTSecret,
+		"avicosystem-test",
+		15*time.Minute,
+	)
+	if err != nil {
+		t.Fatalf("failed to create JWT service: %v", err)
+	}
+
+	claims, err := jwtService.ValidateAccessToken(result.AccessToken)
+	if err != nil {
+		t.Fatalf("failed to validate access token: %v", err)
+	}
+
+	if claims.Subject != result.User.ID.String() {
+		t.Fatal("token subject does not match user ID")
+	}
+
+	if claims.Role != string(users.RoleUser) {
+		t.Fatalf("unexpected token role: %s", claims.Role)
+	}
+
+	storedUser, err := repository.FindByEmail("rakha@example.com")
+	if err != nil {
+		t.Fatalf("failed to find logged-in user: %v", err)
+	}
+
+	if storedUser.LastLoginAt == nil {
+		t.Fatal("expected LastLoginAt to be updated")
+	}
+}
+
+func TestAuthenticationServiceLoginInvalidCredentials(t *testing.T) {
+	service, _, _ := setupAuthenticationService(t)
+
+	_, err := service.Register(RegisterInput{
+		Name:     "Test User",
+		Email:    "user@example.com",
+		Password: "CorrectPassword123!",
+	})
+	if err != nil {
+		t.Fatalf("failed to register user: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		input LoginInput
+	}{
+		{
+			name: "wrong password",
+			input: LoginInput{
+				Email:    "user@example.com",
+				Password: "WrongPassword123!",
+			},
+		},
+		{
+			name: "unknown email",
+			input: LoginInput{
+				Email:    "missing@example.com",
+				Password: "CorrectPassword123!",
+			},
+		},
+		{
+			name: "empty password",
+			input: LoginInput{
+				Email: "user@example.com",
+			},
+		},
+		{
+			name: "invalid email",
+			input: LoginInput{
+				Email:    "invalid-email",
+				Password: "CorrectPassword123!",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := service.Login(test.input)
+
+			if !errors.Is(err, ErrInvalidCredentials) {
+				t.Fatalf("expected ErrInvalidCredentials, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestAuthenticationServiceLoginUnavailableAccount(t *testing.T) {
+	service, _, db := setupAuthenticationService(t)
+
+	statuses := []users.Status{
+		users.StatusInactive,
+		users.StatusSuspended,
+	}
+
+	for _, status := range statuses {
+		t.Run(string(status), func(t *testing.T) {
+			user, err := service.Register(RegisterInput{
+				Name:     "Test User",
+				Email:    string(status) + "@example.com",
+				Password: "SecurePassword123!",
+			})
+			if err != nil {
+				t.Fatalf("failed to register user: %v", err)
+			}
+
+			result := db.Model(&users.User{}).
+				Where("id = ?", user.ID).
+				Update("status", status)
+
+			if result.Error != nil {
+				t.Fatalf("failed to update user status: %v", result.Error)
+			}
+
+			if result.RowsAffected != 1 {
+				t.Fatalf("expected one updated user, got %d", result.RowsAffected)
+			}
+
+			_, err = service.Login(LoginInput{
+				Email:    user.Email,
+				Password: "SecurePassword123!",
+			})
+
+			if !errors.Is(err, ErrAccountUnavailable) {
+				t.Fatalf("expected ErrAccountUnavailable, got: %v", err)
+			}
+		})
+	}
+}
+func TestAuthenticationServiceRejectsNilDependencies(t *testing.T) {
+	_, err := NewAuthenticationService(nil, nil, nil)
+
+	if err == nil {
+		t.Fatal("expected nil dependency error")
+	}
+}
+
+func TestAuthenticationServiceLoginLastLoginFailure(t *testing.T) {
+	service, repository, _ := setupAuthenticationService(t)
+
+	_, err := service.Register(RegisterInput{
+		Name:     "Test User",
+		Email:    "failure@example.com",
+		Password: "SecurePassword123!",
+	})
+	if err != nil {
+		t.Fatalf("failed to register user: %v", err)
+	}
+
+	failingRepository := &failingLoginRepository{
+		Repository: repository,
+		updateErr:  errors.New("database update failed"),
+	}
+
+	passwordService := users.NewPasswordService()
+
+	jwtService, err := NewJWTService(
+		testJWTSecret,
+		"avicosystem-test",
+		15*time.Minute,
+	)
+	if err != nil {
+		t.Fatalf("failed to create JWT service: %v", err)
+	}
+
+	failingService, err := NewAuthenticationService(
+		failingRepository,
+		passwordService,
+		jwtService,
+	)
+	if err != nil {
+		t.Fatalf("failed to create authentication service: %v", err)
+	}
+
+	_, err = failingService.Login(LoginInput{
+		Email:    "failure@example.com",
+		Password: "SecurePassword123!",
+	})
+
+	if err == nil {
+		t.Fatal("expected login failure when last login update fails")
+	}
+}

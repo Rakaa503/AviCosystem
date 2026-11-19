@@ -12,6 +12,8 @@ import (
 	"avicosystem/backend/internal/cache"
 	"avicosystem/backend/internal/config"
 	"avicosystem/backend/internal/database"
+	authmodule "avicosystem/backend/internal/modules/auth"
+	"avicosystem/backend/internal/modules/users"
 	"avicosystem/backend/internal/server"
 )
 
@@ -40,7 +42,30 @@ func run() error {
 	}
 	defer redisClient.Close()
 
-	app := server.New(cfg, postgres, redisClient)
+	jwtService, err := authmodule.NewJWTService(
+		cfg.App.JWTSecret,
+		cfg.App.Name,
+		time.Duration(cfg.App.JWTAccessTokenTTLMinutes)*time.Minute,
+	)
+	if err != nil {
+		return fmt.Errorf("JWT initialization failed: %w", err)
+	}
+
+	userRepository := users.NewRepository(postgres.DB)
+	passwordService := users.NewPasswordService()
+
+	authService, err := authmodule.NewAuthenticationService(
+		userRepository,
+		passwordService,
+		jwtService,
+	)
+	if err != nil {
+		return fmt.Errorf("authentication initialization failed: %w", err)
+	}
+
+	authHandler := authmodule.NewHandler(authService)
+
+	app := server.New(cfg, postgres, redisClient, authHandler)
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),

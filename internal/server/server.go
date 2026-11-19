@@ -7,6 +7,7 @@ import (
 	"avicosystem/backend/internal/config"
 	"avicosystem/backend/internal/database"
 	appmiddleware "avicosystem/backend/internal/middleware"
+	authmodule "avicosystem/backend/internal/modules/auth"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
@@ -17,6 +18,7 @@ func New(
 	cfg *config.Config,
 	postgres *database.PostgreSQL,
 	redisClient *cache.Redis,
+	authHandler *authmodule.Handler,
 ) *fiber.App {
 	fiberConfig := fiber.Config{
 		AppName:    cfg.App.Name,
@@ -98,6 +100,10 @@ func New(
 			},
 		})
 	})
+
+	authRoutes := app.Group("/api/v1/auth")
+	authRoutes.Post("/register", authHandler.Register)
+	authRoutes.Post("/login", authHandler.Login)
 
 	return app
 }
