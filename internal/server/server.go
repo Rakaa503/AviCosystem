@@ -108,5 +108,10 @@ func New(
 	authRoutes.Post("/register", authHandler.Register)
 	authRoutes.Post("/login", authHandler.Login)
 
+	userRoutes := app.Group(
+		"/api/v1/users",
+		appmiddleware.Auth(jwtService),
+	)
+	userRoutes.Get("/me", profileHandler.Me)
 	return app
 }
