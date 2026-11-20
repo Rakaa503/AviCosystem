@@ -104,6 +104,12 @@ func (s *AuthenticationService) Register(
 	}
 
 	if err := s.repository.Create(user); err != nil {
+		existingUser, lookupErr := s.repository.FindByEmail(email)
+
+		if lookupErr == nil && existingUser != nil {
+			return nil, ErrEmailAlreadyExists
+		}
+
 		return nil, fmt.Errorf("register user: %w", err)
 	}
 

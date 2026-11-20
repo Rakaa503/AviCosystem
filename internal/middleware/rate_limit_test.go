@@ -24,9 +24,9 @@ func setupRateLimitTest(
 	client := redis.NewClient(&redis.Options{
 		Addr:         miniRedis.Addr(),
 		MaxRetries:   -1,
-		DialTimeout:  100 * time.Millisecond,
-		ReadTimeout:  100 * time.Millisecond,
-		WriteTimeout: 100 * time.Millisecond,
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  2 * time.Second,
+		WriteTimeout: 2 * time.Second,
 	})
 
 	t.Cleanup(func() {

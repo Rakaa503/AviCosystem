@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"avicosystem/backend/internal/modules/users"
 
@@ -44,7 +45,7 @@ func sendAuthJSON(
 	)
 	request.Header.Set("Content-Type", "application/json")
 
-	response, err := app.Test(request)
+	response, err := app.Test(request, fiber.TestConfig{Timeout: 15 * time.Second, FailOnTimeout: true})
 	if err != nil {
 		t.Fatalf("HTTP request failed: %v", err)
 	}

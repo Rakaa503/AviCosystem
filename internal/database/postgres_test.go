@@ -9,7 +9,7 @@ import (
 
 func TestPostgreSQLConnection(t *testing.T) {
 	if err := godotenv.Load("../../.env"); err != nil {
-		t.Fatalf("Failed to load .env: %v", err)
+		t.Logf("No .env file found; using environment variables")
 	}
 
 	cfg, err := config.Load()
